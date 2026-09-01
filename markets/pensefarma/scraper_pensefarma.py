@@ -72,12 +72,18 @@ def fetch_category_nodes(session: requests.Session) -> List[Dict]:
     Sub-categories require the FULL hierarchical ID path; short-form fq=C:/{id}/
     only works for top-level departments.
     """
-    r = session.get(
-        f"{BASE_URL}/api/catalog_system/pub/category/tree/5",
-        timeout=25,
-    )
-    r.raise_for_status()
-    tree = r.json()
+    # The storefront rate-limits the category-tree fetch; retry on 429/5xx.
+    tree = None
+    for attempt in range(6):
+        r = session.get(f"{BASE_URL}/api/catalog_system/pub/category/tree/5", timeout=25)
+        if r.status_code in (429, 500, 502, 503, 504):
+            time.sleep(min(5 * (attempt + 1), 30))
+            continue
+        r.raise_for_status()
+        tree = r.json()
+        break
+    if tree is None:
+        raise RuntimeError("category tree fetch failed after retries (rate-limited)")
 
     nodes: List[Dict] = []
 
